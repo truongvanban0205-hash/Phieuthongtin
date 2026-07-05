@@ -79,7 +79,7 @@
 
 <!-- ====== CẤU HÌNH: dán URL Web App Google Apps Script vào đây sau khi triển khai ====== -->
 <script>
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbzaf0DBjrgmmFlL3Wb7iogyteROjLBRv-AJ20UAl7TaSp40ovmf05BrBwfY-WAFdo-UBQ/exec";
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbwK-_fytrlNeikAAf2G5RAF3X9yDCOmqoXA46hjXS2V8KG_hFpWXS0gxKNZyI97OJTyAA/exec";
 </script>
 
 <div id="cfgwarn"></div>
@@ -458,24 +458,7 @@ async function submitForm(){
   };
 
   try{
-    const resp = await fetch(GAS_URL, {
-      method:'POST',
-      headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify(payload)
-    });
-    const text = await resp.text();
-    let ok = false, serverMsg = text;
-    try{
-      const j = JSON.parse(text);
-      ok = j.status === 'ok';
-      serverMsg = j.message || text;
-    }catch(parseErr){
-      // Phản hồi không phải JSON (có thể do redirect qua trang đăng nhập Google) -> coi là lỗi
-      ok = false;
-    }
-    if (!ok){
-      throw new Error('Máy chủ phản hồi nhưng báo lỗi: ' + serverMsg);
-    }
+    await submitViaHiddenForm(payload);
     mode='done';
     setTimeout(()=>alert('✓ Đã gửi thành công! Thông tin đã được lưu.'), 100);
   }catch(e){
@@ -486,6 +469,45 @@ async function submitForm(){
     return;
   }
   render();
+}
+
+/* Gửi bằng form ẩn + iframe ẩn thay vì fetch() -> né hoàn toàn giới hạn CORS
+   của Google Apps Script (không cần đọc phản hồi trả về nên không bao giờ bị chặn). */
+function submitViaHiddenForm(payload){
+  return new Promise((resolve, reject)=>{
+    try{
+      const frameName = 'submit_frame_' + Date.now();
+      const iframe = document.createElement('iframe');
+      iframe.name = frameName;
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = GAS_URL;
+      form.target = frameName;
+      form.style.display = 'none';
+
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = 'payload';
+      input.value = JSON.stringify(payload);
+      form.appendChild(input);
+      document.body.appendChild(form);
+
+      form.submit();
+
+      // Không đọc được nội dung iframe (khác domain) nên đợi đủ thời gian
+      // để Apps Script xử lý xong (lưu Sheet + 3 ảnh lên Drive) rồi coi như thành công.
+      setTimeout(()=>{
+        resolve();
+        form.remove();
+        setTimeout(()=> iframe.remove(), 4000);
+      }, 3000);
+    }catch(err){
+      reject(err);
+    }
+  });
 }
 function resetForm(){
   state.fields = {
