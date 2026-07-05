@@ -445,18 +445,30 @@ async function submitForm(){
   };
 
   try{
-    await fetch(GAS_URL, {
+    const resp = await fetch(GAS_URL, {
       method:'POST',
-      mode:'no-cors',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify(payload)
     });
+    const text = await resp.text();
+    let ok = false, serverMsg = text;
+    try{
+      const j = JSON.parse(text);
+      ok = j.status === 'ok';
+      serverMsg = j.message || text;
+    }catch(parseErr){
+      // Phản hồi không phải JSON (có thể do redirect qua trang đăng nhập Google) -> coi là lỗi
+      ok = false;
+    }
+    if (!ok){
+      throw new Error('Máy chủ phản hồi nhưng báo lỗi: ' + serverMsg);
+    }
     mode='done';
     setTimeout(()=>alert('✓ Đã gửi thành công! Thông tin đã được lưu.'), 100);
   }catch(e){
-    document.getElementById('topbanner').innerHTML = `<div class="banner warn">⚠ GỬI THẤT BẠI thật sự (không có kết nối tới máy chủ). Vui lòng kiểm tra mạng và thử lại. Lỗi: ${e.message}</div>`;
+    document.getElementById('topbanner').innerHTML = `<div class="banner warn">⚠ GỬI THẤT BẠI. Chi tiết lỗi: ${e.message}. Vui lòng chụp màn hình dòng này gửi cho người hỗ trợ.</div>`;
     window.scrollTo(0,0);
-    alert('Gửi thất bại: ' + e.message);
+    alert('Gửi thất bại. Chi tiết: ' + e.message);
     btn.disabled=false; btn.textContent='Gửi thông tin';
     return;
   }
