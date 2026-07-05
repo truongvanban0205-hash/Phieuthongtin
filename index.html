@@ -55,6 +55,8 @@
   .checklist div{padding:2px 0;display:flex;gap:6px;align-items:flex-start;}
   .checklist .ok{color:var(--ok);}
   .checklist .bad{color:var(--warn);}
+  .checklist .soft{color:#966b1f;}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:6px;}
   .submitbar{position:sticky;bottom:0;background:var(--paper);padding:10px 0 4px;}
   .submitbtn{width:100%;padding:14px;font-size:15px;border-radius:9px;}
   .banner{padding:11px 13px;border-radius:8px;font-size:13px;margin-bottom:12px;}
@@ -164,11 +166,16 @@ if (GAS_URL.indexOf('DÁN_URL') === 0){
 /* ---------------- state ---------------- */
 const state = {
   fields: {
-    mnv:'', hoten:'', gioitinh:'Nam', ngaysinh:'', ngaybatdau:'',
+    mnv:'', hoten:'', gioitinh:'Nam',
+    ngaysinh:'', ngaysinh_d:'', ngaysinh_m:'', ngaysinh_y:'',
+    ngaybatdau:'', ngaybatdau_d:'', ngaybatdau_m:'', ngaybatdau_y:'',
     quoctich:'Việt Nam', quoctich_khac:'',
-    chucdanh:'', giayto:'', ngaycap:'', noicap:'Cục Cảnh sát QLHC về TTXH',
+    chucdanh:'', giayto:'',
+    ngaycap:'', ngaycap_d:'', ngaycap_m:'', ngaycap_y:'',
+    noicap:'Cục Cảnh sát QLHC về TTXH',
     dienthoai:'', faceid:'Chưa có', thetam:'Chưa có',
-    vitri:'PK01', mangktx:'P9', ngaydangkyktx:''
+    vitri:'PK01', mangktx:'P9',
+    ngaydangkyktx:'', ngaydangkyktx_d:'', ngaydangkyktx_m:'', ngaydangkyktx_y:''
   },
   photos: { chandung:null, cccd_truoc:null, cccd_sau:null }
 };
@@ -180,21 +187,26 @@ const PHOTO_META = {
 const KTX_NO_DATE = ['Tự thuê ngoài','Nhà cá nhân'];
 let mode = 'form';
 
-/* ---------------- image analysis (unchanged logic) ---------------- */
+/* ---------------- image analysis ---------------- */
 function analyzeCanvas(canvas, meta){
   const w = canvas.width, h = canvas.height;
-  const issues = [];
-  if (w < meta.minW || h < meta.minH) issues.push('Độ phân giải thấp, hãy chụp lại gần hơn hoặc dùng camera nét hơn.');
-  const ratio = w/h;
-  if (meta.orient === 'landscape' && ratio < 1){
-    issues.push('Ảnh đang bị dọc — xoay ngang thẻ CCCD khi chụp.');
-  } else if (meta.orient === 'portrait' && ratio > 1){
-    issues.push('Ảnh đang bị ngang — chụp theo chiều dọc.');
-  } else {
-    const diff = Math.abs(ratio-meta.aspect)/meta.aspect;
-    if (diff > 0.35) issues.push('Tỉ lệ khung ảnh chưa khớp khung hướng dẫn, căn lại cho vừa khung vàng.');
+  const hard = [];   // chỉ chặn khi ảnh thật sự hỏng/quá nhỏ bất thường
+  const soft = [];   // mọi nghi ngờ khác -> chỉ cảnh báo, KHÔNG chặn gửi
+
+  if (w < 200 || h < 200){
+    hard.push('Ảnh quá nhỏ hoặc bị lỗi, vui lòng chụp/chọn lại ảnh khác.');
+  } else if (w < meta.minW || h < meta.minH){
+    soft.push('Độ phân giải hơi thấp so với khuyến nghị, nếu ảnh vẫn rõ chữ/rõ mặt thì vẫn nộp được.');
   }
-  const sw = 160, sh = Math.round(160*h/w);
+
+  const ratio = w/h;
+  if (meta.orient === 'landscape' && ratio < 0.85){
+    soft.push('Ảnh có vẻ đang bị dọc — nếu chụp CCCD nên xoay ngang để dễ nhìn hơn.');
+  } else if (meta.orient === 'portrait' && ratio > 1.15){
+    soft.push('Ảnh có vẻ đang bị ngang — ảnh chân dung nên chụp theo chiều dọc.');
+  }
+
+  const sw = 400, sh = Math.max(1, Math.round(400*h/w));
   const tmp = document.createElement('canvas'); tmp.width=sw; tmp.height=sh;
   const tctx = tmp.getContext('2d'); tctx.drawImage(canvas,0,0,sw,sh);
   const data = tctx.getImageData(0,0,sw,sh).data;
@@ -205,8 +217,9 @@ function analyzeCanvas(canvas, meta){
     gray[p]=g; sum+=g;
   }
   const brightness = sum/gray.length;
-  if (brightness < 55) issues.push('Ảnh quá tối, chụp ở nơi đủ ánh sáng.');
-  if (brightness > 218) issues.push('Ảnh bị chói / quá sáng, tránh ánh sáng chiếu thẳng vào thẻ hoặc mặt.');
+  if (brightness < 65) soft.push('Ảnh hơi tối, kiểm tra xem còn đọc rõ chữ/thấy rõ mặt không.');
+  if (brightness > 210) soft.push('Ảnh hơi chói, kiểm tra chữ trên thẻ còn đọc được không.');
+
   let lapSum=0, lapSumSq=0, cnt=0;
   for (let y=1;y<sh-1;y++){
     for (let x=1;x<sw-1;x++){
@@ -217,8 +230,9 @@ function analyzeCanvas(canvas, meta){
   }
   const mean = lapSum/cnt;
   const variance = (lapSumSq/cnt) - mean*mean;
-  if (variance < 45) issues.push('Ảnh có vẻ bị mờ / rung tay, giữ máy ổn định và chụp lại.');
-  return { width:w, height:h, brightness, sharpness:variance, issues, pass: issues.length===0 };
+  if (variance < 35) soft.push('Ảnh có thể hơi mờ — nếu phóng to vẫn đọc rõ số/chữ thì vẫn nộp được.');
+
+  return { width:w, height:h, brightness, sharpness:variance, hard, soft, pass: hard.length===0 };
 }
 function resizeCompress(canvas, maxDim, quality){
   let {width:w, height:h} = canvas;
@@ -333,6 +347,30 @@ function fieldRow(id,labelText,type,opts={}){
     <div class="err">${errs[id]||''}</div>
   </div>`;
 }
+function dateSelectRow(id, labelText, opts={}){
+  const errs = window.__errs || {};
+  const invalid = errs[id] ? 'invalid' : '';
+  const dVal = state.fields[id+'_d'] || '';
+  const mVal = state.fields[id+'_m'] || '';
+  const yVal = state.fields[id+'_y'] || '';
+  const minY = opts.minYear || 1950;
+  const maxY = opts.maxYear || (new Date().getFullYear()+1);
+  let yearOpts = '';
+  for (let y=maxY; y>=minY; y--) yearOpts += `<option value="${y}" ${String(y)===yVal?'selected':''}>${y}</option>`;
+  let dayOpts = '';
+  for (let d=1; d<=31; d++) dayOpts += `<option value="${d}" ${String(d)===dVal?'selected':''}>${d}</option>`;
+  let monthOpts = '';
+  for (let m=1; m<=12; m++) monthOpts += `<option value="${m}" ${String(m)===mVal?'selected':''}>Tháng ${m}</option>`;
+  return `<div class="row ${invalid}">
+    <label class="${opts.required?'req':''}">${labelText}</label>
+    <div class="row3">
+      <select data-datef="${id}" data-part="d"><option value="">Ngày</option>${dayOpts}</select>
+      <select data-datef="${id}" data-part="m"><option value="">Tháng</option>${monthOpts}</select>
+      <select data-datef="${id}" data-part="y"><option value="">Năm</option>${yearOpts}</select>
+    </div>
+    <div class="err">${errs[id]||''}</div>
+  </div>`;
+}
 function photoBoxHtml(key){
   const meta = PHOTO_META[key];
   const p = state.photos[key];
@@ -345,9 +383,14 @@ function photoBoxHtml(key){
       </div>`;
   } else {
     cls += p.analysis.pass || p.overridden ? ' done' : ' bad';
-    const list = p.analysis.pass
-      ? `<div class="checklist"><div class="ok">✓ Ảnh đạt yêu cầu về độ nét, ánh sáng và bố cục.</div></div>`
-      : `<div class="checklist">${p.analysis.issues.map(i=>`<div class="bad">✗ ${i}</div>`).join('')}</div>`;
+    const rows = [];
+    if (p.analysis.hard.length===0 && p.analysis.soft.length===0){
+      rows.push(`<div class="ok">✓ Ảnh đạt yêu cầu về độ nét, ánh sáng và bố cục.</div>`);
+    } else {
+      p.analysis.hard.forEach(i=>rows.push(`<div class="bad">✗ ${i}</div>`));
+      p.analysis.soft.forEach(i=>rows.push(`<div class="soft">⚠ ${i}</div>`));
+    }
+    const list = `<div class="checklist">${rows.join('')}</div>`;
     body = `<div class="pb-title">${meta.title}</div>
       <img class="thumb" src="${p.dataUrl}">
       ${list}
@@ -372,11 +415,13 @@ async function submitForm(){
   if (Object.keys(errs).length || missingPhotos.length || blockedPhotos.length){
     render();
     let msg = [];
-    if (Object.keys(errs).length) msg.push('Vui lòng kiểm tra lại các ô thông tin còn thiếu/sai.');
+    if (Object.keys(errs).length) msg.push('Vui lòng kiểm tra lại các ô thông tin còn thiếu/sai (đã bôi đỏ bên dưới).');
     if (missingPhotos.length) msg.push('Vui lòng chụp đủ 3 ảnh.');
-    if (blockedPhotos.length) msg.push('Có ảnh chưa đạt chất lượng — chụp lại hoặc tick "vẫn dùng ảnh này".');
-    document.getElementById('topbanner').innerHTML = `<div class="banner warn">${msg.join(' ')}</div>`;
+    if (blockedPhotos.length) msg.push('Có ảnh chưa đạt (' + blockedPhotos.length + ' ảnh) — chụp lại hoặc tick "vẫn dùng ảnh này" ở đúng ảnh đó.');
+    const full = msg.join(' ');
+    document.getElementById('topbanner').innerHTML = `<div class="banner warn">⚠ CHƯA GỬI ĐƯỢC: ${full}</div>`;
     window.scrollTo(0,0);
+    alert('Chưa gửi được:\n' + full);
     return;
   }
 
@@ -402,12 +447,16 @@ async function submitForm(){
   try{
     await fetch(GAS_URL, {
       method:'POST',
+      mode:'no-cors',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
       body: JSON.stringify(payload)
     });
     mode='done';
+    setTimeout(()=>alert('✓ Đã gửi thành công! Thông tin đã được lưu.'), 100);
   }catch(e){
-    document.getElementById('topbanner').innerHTML = `<div class="banner warn">Gửi thất bại do lỗi mạng. Vui lòng thử lại.</div>`;
+    document.getElementById('topbanner').innerHTML = `<div class="banner warn">⚠ GỬI THẤT BẠI thật sự (không có kết nối tới máy chủ). Vui lòng kiểm tra mạng và thử lại. Lỗi: ${e.message}</div>`;
+    window.scrollTo(0,0);
+    alert('Gửi thất bại: ' + e.message);
     btn.disabled=false; btn.textContent='Gửi thông tin';
     return;
   }
@@ -415,11 +464,16 @@ async function submitForm(){
 }
 function resetForm(){
   state.fields = {
-    mnv:'', hoten:'', gioitinh:'Nam', ngaysinh:'', ngaybatdau:'',
+    mnv:'', hoten:'', gioitinh:'Nam',
+    ngaysinh:'', ngaysinh_d:'', ngaysinh_m:'', ngaysinh_y:'',
+    ngaybatdau:'', ngaybatdau_d:'', ngaybatdau_m:'', ngaybatdau_y:'',
     quoctich:'Việt Nam', quoctich_khac:'',
-    chucdanh:'', giayto:'', ngaycap:'', noicap:'Cục Cảnh sát QLHC về TTXH',
+    chucdanh:'', giayto:'',
+    ngaycap:'', ngaycap_d:'', ngaycap_m:'', ngaycap_y:'',
+    noicap:'Cục Cảnh sát QLHC về TTXH',
     dienthoai:'', faceid:'Chưa có', thetam:'Chưa có',
-    vitri:'PK01', mangktx:'P9', ngaydangkyktx:''
+    vitri:'PK01', mangktx:'P9',
+    ngaydangkyktx:'', ngaydangkyktx_d:'', ngaydangkyktx_m:'', ngaydangkyktx_y:''
   };
   state.photos = { chandung:null, cccd_truoc:null, cccd_sau:null };
   window.__errs = {};
@@ -445,12 +499,10 @@ function render(){
       <h2><span class="n">1</span> Thông tin cá nhân</h2>
       ${fieldRow('mnv','MNV','text',{required:true,placeholder:'VD: 4013367'})}
       ${fieldRow('hoten','Họ và tên','text',{required:true,placeholder:'VD: Nguyễn Văn A'})}
-      <div class="row2">
-        ${fieldRow('gioitinh','Giới tính','select',{options:['Nam','Nữ']})}
-        ${fieldRow('ngaysinh','Ngày/tháng/năm sinh','date',{required:true})}
-      </div>
-      ${fieldRow('ngaybatdau','Ngày bắt đầu làm việc tại dự án','date',{required:true})}
-      ${fieldRow('quoctich','Quốc tịch','select',{options:['Việt Nam','Lào','Campuchia','Trung Quốc','Hàn Quốc','Nhật Bản','Khác']})}
+      ${fieldRow('gioitinh','Giới tính','select',{options:['Nam','Nữ'],required:true})}
+      ${dateSelectRow('ngaysinh','Ngày/tháng/năm sinh',{required:true,minYear:1955,maxYear:new Date().getFullYear()-15})}
+      ${dateSelectRow('ngaybatdau','Ngày bắt đầu làm việc tại dự án',{required:true,minYear:2015,maxYear:new Date().getFullYear()+1})}
+      ${fieldRow('quoctich','Quốc tịch','select',{options:['Việt Nam','Lào','Campuchia','Trung Quốc','Hàn Quốc','Nhật Bản','Khác'],required:true})}
       ${state.fields.quoctich==='Khác' ? fieldRow('quoctich_khac','Ghi rõ quốc tịch','text',{required:true}) : ''}
       ${fieldRow('chucdanh','Chức danh','text',{required:true,placeholder:'VD: Kỹ sư thi công'})}
     </div>
@@ -458,22 +510,20 @@ function render(){
     <div class="card">
       <h2><span class="n">2</span> Giấy tờ tùy thân</h2>
       ${fieldRow('giayto','Số CMT/CCCD/Hộ chiếu','text',{required:true,placeholder:'Nhập số giấy tờ'})}
-      <div class="row2">
-        ${fieldRow('ngaycap','Ngày cấp','date',{required:true})}
-        ${fieldRow('noicap','Nơi cấp','select',{options:['Cục Cảnh sát QLHC về TTXH','Công an tỉnh/thành phố nơi thường trú','Khác']})}
-      </div>
+      ${dateSelectRow('ngaycap','Ngày cấp',{required:true,minYear:1990,maxYear:new Date().getFullYear()})}
+      ${fieldRow('noicap','Nơi cấp','select',{options:['Cục Cảnh sát QLHC về TTXH','Công an tỉnh/thành phố nơi thường trú','Khác'],required:true})}
       ${fieldRow('dienthoai','Số điện thoại','tel',{required:true,placeholder:'VD: 0972...'})}
     </div>
 
     <div class="card">
       <h2><span class="n">3</span> Ra vào cổng & nơi làm việc</h2>
       <div class="row2">
-        ${fieldRow('faceid','Đã có Face ID ra vào cổng?','select',{options:['Có','Chưa có']})}
-        ${fieldRow('thetam','Đã có thẻ tạm ra vào cổng?','select',{options:['Có','Chưa có']})}
+        ${fieldRow('faceid','Đã có Face ID ra vào cổng?','select',{options:['Có','Chưa có'],required:true})}
+        ${fieldRow('thetam','Đã có thẻ tạm ra vào cổng?','select',{options:['Có','Chưa có'],required:true})}
       </div>
-      ${fieldRow('vitri','Vị trí làm việc','select',{options:['PK01','PK02','PK03','NOXH','Kênh Thủy Triều','Văn phòng BCH']})}
-      ${fieldRow('mangktx','Mảng KTX','select',{options:['P9','P11','Lán trại','Nhà thuê (Bà Quyên)','Nhà thuê (Ông Năm)','Tự thuê ngoài','Nhà cá nhân']})}
-      ${showKtxDate ? fieldRow('ngaydangkyktx','Ngày đăng ký ở','date',{required:true}) : '<div class="hint">Không cần đăng ký ngày ở vì nhà tự thuê / nhà cá nhân.</div>'}
+      ${fieldRow('vitri','Vị trí làm việc','select',{options:['PK01','PK02','PK03','NOXH','Kênh Thủy Triều','Văn phòng BCH'],required:true})}
+      ${fieldRow('mangktx','Mảng KTX','select',{options:['P9','P11','Lán trại','Nhà thuê (Bà Quyên)','Nhà thuê (Ông Năm)','Tự thuê ngoài','Nhà cá nhân'],required:true})}
+      ${showKtxDate ? dateSelectRow('ngaydangkyktx','Ngày đăng ký ở',{required:true,minYear:2015,maxYear:new Date().getFullYear()+1}) : '<div class="hint">Không cần đăng ký ngày ở vì nhà tự thuê / nhà cá nhân.</div>'}
     </div>
 
     <div class="card">
@@ -497,6 +547,14 @@ function render(){
     };
     el.addEventListener('input', handler);
     el.addEventListener('change', handler);
+  });
+  app.querySelectorAll('[data-datef]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const id = el.dataset.datef, part = el.dataset.part;
+      state.fields[id+'_'+part] = el.value;
+      const d = state.fields[id+'_d'], m = state.fields[id+'_m'], y = state.fields[id+'_y'];
+      state.fields[id] = (d && m && y) ? `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}` : '';
+    });
   });
 }
 render();
