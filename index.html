@@ -79,7 +79,7 @@
 
 <!-- ====== CẤU HÌNH: dán URL Web App Google Apps Script vào đây sau khi triển khai ====== -->
 <script>
-  const GAS_URL = "https://script.google.com/macros/s/AKfycbxSEW_xoGF66oB5noq0NVu53bZWXuTEDYwMBCH7SSnlKaMR1o9NpZdwZI-oknV-OLJL/exec";
+  const GAS_URL = "https://script.google.com/macros/s/AKfycbzId9bjwifqR1IooMEmElHgbM5c414B-nrP5b3MRCX5Epu9NoSHM6GScpoOYZcH2dDL/exec";
 </script>
 
 <div id="cfgwarn"></div>
@@ -95,21 +95,6 @@ if (GAS_URL.indexOf('DÁN_URL') === 0){
   document.getElementById('cfgwarn').innerHTML =
     '<div class="cfgwarn">⚠ Chưa cấu hình nơi lưu dữ liệu (GAS_URL). Xem hướng dẫn kèm theo để triển khai Google Apps Script rồi dán URL vào đầu file.</div>';
 }
-
-/* Bắt mọi lỗi JS xảy ra (kể cả lỗi âm thầm trước giờ không hiện ra) và hiện
-   thành dòng đỏ ngay trên màn hình để người dùng chụp lại gửi hỗ trợ. */
-function showFatalError(msg){
-  const box = document.createElement('div');
-  box.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:5000;background:#7a1414;color:#fff;padding:12px 14px;font-size:12.5px;font-family:monospace;white-space:pre-wrap;max-height:40vh;overflow:auto;';
-  box.textContent = '⚠ LỖI HỆ THỐNG (chụp màn hình này gửi hỗ trợ): ' + msg;
-  document.body.appendChild(box);
-}
-window.addEventListener('error', function(ev){
-  showFatalError((ev.message||'') + ' | file: ' + (ev.filename||'') + ' dòng ' + (ev.lineno||''));
-});
-window.addEventListener('unhandledrejection', function(ev){
-  showFatalError('Promise lỗi: ' + (ev.reason && ev.reason.message ? ev.reason.message : JSON.stringify(ev.reason)));
-});
 
 /* Chặn màn hình nếu mở trong webview của Zalo/Messenger/Facebook/Instagram/Line,
    vì các webview này thường không cấp quyền camera. Hướng dẫn riêng cho Android/iPhone. */
@@ -473,20 +458,16 @@ async function submitForm(){
   };
 
   try{
-    const controller = new AbortController();
-    const timeoutId = setTimeout(()=>controller.abort(), 20000);
     await fetch(GAS_URL, {
       method:'POST',
       mode:'no-cors',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body: JSON.stringify(payload),
-      signal: controller.signal
+      body: JSON.stringify(payload)
     });
-    clearTimeout(timeoutId);
     mode='done';
     setTimeout(()=>alert('✓ Đã gửi thành công! Thông tin đã được lưu.'), 100);
   }catch(e){
-    document.getElementById('topbanner').innerHTML = `<div class="banner warn">⚠ GỬI THẤT BẠI thật sự (mất kết nối mạng hoặc quá thời gian chờ). Chi tiết: ${e.message}</div>`;
+    document.getElementById('topbanner').innerHTML = `<div class="banner warn">⚠ GỬI THẤT BẠI thật sự (mất kết nối mạng). Chi tiết: ${e.message}</div>`;
     window.scrollTo(0,0);
     alert('Gửi thất bại: ' + e.message);
     btn.disabled=false; btn.textContent='Gửi thông tin';
